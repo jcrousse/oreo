@@ -1,15 +1,30 @@
 from unittest import TestCase
+import os
+
+import tensorflow as tf
+
 from data.dataset_prep import TextDataSetPrep
 
 
 class TestTextDataSetPrep(TestCase):
+    def setUp(self) -> None:
+        self.temp_tfr_path = "test_tfr_tfrecord"
+        self._cleanup()
+
+    def tearDown(self) -> None:
+        self._cleanup()
+
+    def _cleanup(self):
+        if os.path.isfile(self.temp_tfr_path):
+            os.remove(self.temp_tfr_path)
+
     def test_get_imdb_data(self):
         _ = TextDataSetPrep(nrows=10)
 
     def test_get_x_y(self):
         tds = TextDataSetPrep(nrows=10, spacy_model=None)
         df_ids = tds._selected_ids(seed=7357)
-        self.assertIn('10007_4.txt', df_ids)
+        self.assertIn('10007_4.txt', df_ids.values)
 
     def test_text_split(self):
         doc = "this is the first sentence. This is the second one. \n\n This is  a new paragraph"
@@ -44,4 +59,19 @@ class TestTextDataSetPrep(TestCase):
         self.assertListEqual([4, 1, 3, 5, 7], v1[0])
 
     def test_get_tf_dataset(self):
-        _ = TextDataSetPrep().get_tf_dataset()
+        _ = TextDataSetPrep(chunksize=10000).get_tf_dataset()
+
+    def test_serial_deserial(self):
+        tds = TextDataSetPrep(csv_path=None, id_col='id', text_col='text', label_col='label')
+        data = {
+            'id': 'abc',
+            'label': 'label',
+            'text': "this is my text for testing. It has two sentences"
+        }
+        serialized = tds._serialize_tfr(data, False, False)
+
+        with tf.io.TFRecordWriter(self.temp_tfr_path) as writer:
+            writer.write(serialized.SerializeToString())
+        dataset = tf.data.TFRecordDataset(self.temp_tfr_path)
+        for e in dataset:
+            _ = tds._deserialize_tfr(e)

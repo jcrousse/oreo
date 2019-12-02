@@ -3,11 +3,12 @@ reads the IMDB data from a CSV and generates a TF dataset.
 Tokenization handled by SpaCy.
 
 """
+from tqdm import tqdm
 
 import pandas as pd
 import spacy
 from sklearn.model_selection import train_test_split
-# import tensorflow as tf
+import tensorflow as tf
 
 from data.data_config import IMDB_CSV, LABELS, LABEL_COL, ID_COL, TEXT_COL, ENCODING
 
@@ -27,6 +28,15 @@ def identity(x):
     return x
 
 
+def bytes_feature(value):
+    """Returns a bytes_list from a string / byte."""
+    if isinstance(value, type(tf.constant(0))):
+        value = value.numpy()
+    if isinstance(value, str):
+        value = value.encode('utf-8')
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+
 class TextDataSetPrep:
     def __init__(self,
                  csv_path=IMDB_CSV,
@@ -37,19 +47,32 @@ class TextDataSetPrep:
                  encoding=ENCODING,
                  spacy_model='en_core_web_sm',
                  nrows=None,
+                 chunksize=None,
                  ):
+
         self.csv_path = csv_path
         self.labels = labels
         self.label_col = label_col
         self.text_col = text_col
         self.id_col = id_col
         self.columns = [self.id_col, self.label_col]
-        full_df = pd.read_csv(self.csv_path, encoding=encoding, nrows=nrows, usecols=self.columns)
-        self.text_df = full_df.loc[full_df[label_col].isin(self.labels), self.columns]
 
-        dataset_head = pd.read_csv(self.csv_path, encoding=encoding, nrows=5)
-        self.tf_col_indices = sorted([list(dataset_head.columns).index(col)
-                                      for col in [self.text_col, self.id_col, self.label_col]])
+        if csv_path is not None:
+            full_df = pd.read_csv(self.csv_path, encoding=encoding, nrows=nrows, usecols=self.columns)
+            self.label_df = full_df.loc[full_df[label_col].isin(self.labels), self.columns]
+            self.text_df_gen = \
+                pd.read_csv(self.csv_path,
+                            encoding=encoding,
+                            chunksize=chunksize,
+                            usecols=[id_col, text_col, label_col])
+            if chunksize is None:
+                self.text_df_gen = [self.text_df_gen]
+
+            # self.label_values = self.label_df[self.label_col].unique()
+
+            dataset_head = pd.read_csv(self.csv_path, encoding=encoding, nrows=5)
+            self.tf_col_indices = sorted([list(dataset_head.columns).index(col)
+                                          for col in [self.text_col, self.id_col, self.label_col]])
 
         if spacy_model is not None:
             nlp = spacy.load(spacy_model, disable=["tagger", "parser", "ner"])
@@ -62,42 +85,57 @@ class TextDataSetPrep:
             self.tokenizer = NaiveTokenizer
 
     def get_tf_dataset(self,
-                       batch_size=256,
                        n_per_label=None,
-                       use_tf_record=True,
                        dataset_split=None,
-                       seed=None):
+                       split_sentences=False,
+                       split_characters=False,
+                       seed=None,):
 
         selected_ids = self._selected_ids(n_per_label=n_per_label, seed=seed)
         dataset_ids = self._get_ids_per_dataset(selected_ids, dataset_split)
         dataset_list = []
+
+        tfr_name = "TFR.tfrecord"
         for id_list in dataset_ids:
-            pass
-            # dataset = tf.data.experimental.CsvDataset(self.csv_path,
-            #                                           select_cols=self.tf_col_indices,
-            #                                           record_defaults=["", "", ""])
-            # def filter_fn(x, y, z):
-            #     return True if y == 'label' else False
-            #
-            # def map_fn(x, y, z):
-            #     return (x, self._text_split(y)), z
-            # dataset = dataset.map(map_fn)
-            # dataset = dataset.filter(filter_fn)
-            # dataset_list.append(dataset)
-            # _ = 1
+            for text_df_chunk in self.text_df_gen:
+                try:
+                    text_df_select = text_df_chunk.set_index(self.id_col).loc[id_list]
+                except KeyError:
+                    text_df_select = pd.DataFrame()
+                if text_df_select.shape[0] > 0:
+                    text_df_select[self.id_col] = text_df_select.index.values
+                    text_df = text_df_select[~text_df_select[self.text_col].isnull()]
+                    serialized_records = text_df.apply(
+                        lambda x: self._serialize_tfr(x, split_sentences, split_characters),
+                        axis=1)
+                    with tf.io.TFRecordWriter(tfr_name) as writer:
+                        for serialized_item in tqdm(serialized_records.values):
+                            writer.write(serialized_item.SerializeToString())
+            dataset_raw = tf.data.TFRecordDataset(tfr_name)
+            dataset = dataset_raw.map(self._deserialize_tfr)
+            for e in dataset:
+                print(e)
+
         return dataset_list
+
+    def get_ragged_tensors(self):
+        """
+        https://www.tensorflow.org/tutorials/load_data/tfrecord does not seem to support nested features for now.
+        Alternatively, we load all the text in memory and create one big RaggedTensor here.
+        """
+
+        pass
 
     def _selected_ids(self, n_per_label=1000, seed=None):
         def min_row(val1, val2):
             return val2 if val2 is None or 0 < val2 < val1 else val1
-        return self.text_df.groupby(self.label_col, group_keys=False)\
-                   .apply(lambda x: x.sample(min_row(len(x), n_per_label), random_state=seed)).loc[:, self.id_col].values
+        return self.label_df.groupby(self.label_col, group_keys=False)\
+                   .apply(lambda x: x.sample(min_row(len(x), n_per_label), random_state=seed))[self.id_col]
 
     def _text_split(self, text, split_sentences=False, split_characters=False):
         """
         splits a given text into tokens, and optionally in sentences, and characters.
         Returns (nested) list of (sentences) tokens (characters).
-
         """
         tokens = []
         tokenized_text = self.tokenizer(text)
@@ -137,3 +175,49 @@ class TextDataSetPrep:
                 split_props[idx+1:] = [e/sum(split_props[idx+1:]) for e in split_props[idx+1:]]
 
         return ids_per_dataset
+
+    def _serialize_tfr(self, row, split_sent, split_char):
+        text_data = self._text_split(row[self.text_col], split_sent, split_char)
+        label = row[self.label_col]
+        doc_id = row[self.id_col]
+
+        context_features = tf.train.Features(feature={
+            'doc_id': bytes_feature(doc_id),
+            'label': bytes_feature(label)
+        })
+
+        feature_list = {}
+        if text_data is not None:
+            tokens_features = []
+            for elem in text_data:
+                tokens_features.append(bytes_feature(elem))
+
+            feature_list['tokens'] = tf.train.FeatureList(feature=tokens_features)
+
+        sequence_features = tf.train.FeatureLists(feature_list=feature_list)
+
+        sequence_example = tf.train.SequenceExample(
+            context=context_features,
+            feature_lists=sequence_features,
+        )
+
+        return sequence_example
+
+    @staticmethod
+    def _deserialize_tfr(observation):
+        context_features = {
+            "doc_id": tf.io.FixedLenFeature([], dtype=tf.string),
+            "label": tf.io.FixedLenFeature([], dtype=tf.string),
+        }
+
+        sequence_features = {
+            "tokens": tf.io.FixedLenSequenceFeature([], dtype=tf.string),
+        }
+
+        context, sequences = tf.io.parse_single_sequence_example(
+            serialized=observation,
+            context_features=context_features,
+            sequence_features=sequence_features
+        )
+
+        return {'doc_id': context['doc_id'], 'tokens': sequences['tokens']}, context['label']
