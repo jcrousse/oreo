@@ -10,7 +10,7 @@ import spacy
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
 
-from data.data_config import IMDB_CSV, LABELS, LABEL_COL, ID_COL, TEXT_COL, ENCODING
+from data.data_config import IMDB_CSV_SHUFFLE, LABELS, LABEL_COL, ID_COL, TEXT_COL, ENCODING
 
 
 class NaiveTokenizer(list):
@@ -39,7 +39,7 @@ def bytes_feature(value):
 
 class TextDataSetPrep:
     def __init__(self,
-                 csv_path=IMDB_CSV,
+                 csv_path=IMDB_CSV_SHUFFLE,
                  labels=LABELS,
                  label_col=LABEL_COL,
                  id_col=ID_COL,
@@ -58,13 +58,14 @@ class TextDataSetPrep:
         self.columns = [self.id_col, self.label_col]
 
         if csv_path is not None:
-            full_df = pd.read_csv(self.csv_path, encoding=encoding, nrows=nrows, usecols=self.columns)
-            self.label_df = full_df.loc[full_df[label_col].isin(self.labels), self.columns]
+            label_df = pd.read_csv(self.csv_path, encoding=encoding, nrows=nrows, usecols=self.columns)
+            self.label_df = label_df.loc[label_df[label_col].isin(self.labels), self.columns]
             self.text_df_gen = \
                 pd.read_csv(self.csv_path,
                             encoding=encoding,
                             chunksize=chunksize,
-                            usecols=[id_col, text_col, label_col])
+                            usecols=[id_col, text_col, label_col],
+                            nrows=nrows)
             if chunksize is None:
                 self.text_df_gen = [self.text_df_gen]
 
@@ -83,6 +84,8 @@ class TextDataSetPrep:
         else:
             self.spacy_nlp = None
             self.tokenizer = NaiveTokenizer
+
+        self.label_table = self._prepare_labels_lookup()
 
     def get_tf_dataset(self,
                        n_per_label=None,
@@ -118,13 +121,30 @@ class TextDataSetPrep:
 
         return dataset_list
 
-    def get_ragged_tensors(self):
+    def get_ragged_tensors_dataset(self,
+                                   split_sentences=False,
+                                   split_characters=False,
+                                   ):
         """
         https://www.tensorflow.org/tutorials/load_data/tfrecord does not seem to support nested features for now.
         Alternatively, we load all the text in memory and create one big RaggedTensor here.
         """
 
-        pass
+        text = []
+        labels = []
+        tqdm.pandas()
+        for df in self.text_df_gen:
+            text.extend(
+                list(
+                    df[self.text_col].progress_apply(
+                        lambda x: self._text_split(x, split_sentences, split_characters))))
+            labels.extend(list(df[self.label_col].values))
+
+        ragged_text = tf.ragged.constant(text)
+        labels = tf.constant(labels)
+        # ragged_dataset = tf.data.Dataset.from_tensor_slices((ragged_text, labels))
+        # ragged_dataset = self._encode_labels(ragged_dataset)
+        return ragged_text, labels
 
     def _selected_ids(self, n_per_label=1000, seed=None):
         def min_row(val1, val2):
@@ -221,3 +241,21 @@ class TextDataSetPrep:
         )
 
         return {'doc_id': context['doc_id'], 'tokens': sequences['tokens']}, context['label']
+
+    def _prepare_labels_lookup(self):
+        """ Create a StaticHashTable to lookup label to put them into int"""
+        init_label = tf.lookup.KeyValueTensorInitializer(
+            self.labels,
+            tf.range(tf.size(self.labels, out_type=tf.int64), dtype=tf.int64),
+            key_dtype=tf.string,
+            value_dtype=tf.int64,
+        )
+
+        label_table = tf.lookup.StaticHashTable(
+            init_label,
+            default_value=-1,
+        )
+        return label_table
+
+    def _encode_labels(self, dataset):
+        return dataset.map(lambda x, y: (x, tf.one_hot(self.label_table.lookup(y), len(self.labels))))

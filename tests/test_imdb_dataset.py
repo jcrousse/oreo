@@ -24,7 +24,7 @@ class TestTextDataSetPrep(TestCase):
     def test_get_x_y(self):
         tds = TextDataSetPrep(nrows=10, spacy_model=None)
         df_ids = tds._selected_ids(seed=7357)
-        self.assertIn('10007_4.txt', df_ids.values)
+        self.assertIn('5839_3.txt', df_ids.values)
 
     def test_text_split(self):
         doc = "this is the first sentence. This is the second one. \n\n This is  a new paragraph"
@@ -75,3 +75,14 @@ class TestTextDataSetPrep(TestCase):
         dataset = tf.data.TFRecordDataset(self.temp_tfr_path)
         for e in dataset:
             _ = tds._deserialize_tfr(e)
+
+    def test_ragged_memory(self):
+        tds = TextDataSetPrep(nrows=100)
+        x, _ = tds.get_ragged_tensors_dataset()
+        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 870])
+
+        x, _ = tds.get_ragged_tensors_dataset(split_characters=True)
+        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 870, 64])
+
+        x, _ = tds.get_ragged_tensors_dataset(split_characters=True, split_sentences=True)
+        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 32, 183, 64])
