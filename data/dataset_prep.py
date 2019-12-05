@@ -144,7 +144,8 @@ class TextDataSetPrep:
         labels = tf.constant(labels)
         # ragged_dataset = tf.data.Dataset.from_tensor_slices((ragged_text, labels))
         # ragged_dataset = self._encode_labels(ragged_dataset)
-        return ragged_text, labels
+        encoded_labels = tf.one_hot(self.label_table.lookup(labels), len(self.labels))
+        return ragged_text, encoded_labels
 
     def _selected_ids(self, n_per_label=1000, seed=None):
         def min_row(val1, val2):
