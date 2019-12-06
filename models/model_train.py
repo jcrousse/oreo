@@ -3,10 +3,17 @@ from data.dataset_prep import TextDataSetPrep
 from models.basic_sequence import model
 from models.config import vocab_size
 
-tds = TextDataSetPrep(nrows=200)  # need pos and neg examples
+tds = TextDataSetPrep(nrows=20000)  # need pos and neg examples
+MAX_SENT_LEN = 30
+MAX_WORD_LEN = 15
+MAX_REVIEW_LEN = 200
+
+
 x, y = tds.get_ragged_tensors_dataset()
 
-word_buckets = tf.strings.to_hash_bucket_fast(x, vocab_size).to_tensor()
+x_cropped = x[:, :MAX_REVIEW_LEN]
+
+word_buckets = tf.dtypes.cast(tf.strings.to_hash_bucket_fast(x_cropped, vocab_size), tf.float32)
 evaluation = tf.keras.metrics.CategoricalAccuracy()
 
 
