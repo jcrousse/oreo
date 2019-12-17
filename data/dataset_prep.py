@@ -9,6 +9,7 @@ import pandas as pd
 import spacy
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
+from pathlib import Path
 
 from data.data_config import IMDB_CSV_SHUFFLE, LABELS, LABEL_COL, ID_COL, TEXT_COL, ENCODING
 
@@ -87,37 +88,42 @@ class TextDataSetPrep:
 
         self.label_table = self._prepare_labels_lookup()
 
-    def get_tf_dataset(self,
+    def get_tokens_dataset(self,
                        n_per_label=None,
                        dataset_split=None,
-                       split_sentences=False,
-                       split_characters=False,
-                       seed=None,):
+                       seed=None,
+                       tfr_names=None):
 
         selected_ids = self._selected_ids(n_per_label=n_per_label, seed=seed)
         dataset_ids = self._get_ids_per_dataset(selected_ids, dataset_split)
         dataset_list = []
 
-        tfr_name = "TFR.tfrecord"
-        for id_list in dataset_ids:
-            for text_df_chunk in self.text_df_gen:
-                try:
-                    text_df_select = text_df_chunk.set_index(self.id_col).loc[id_list]
-                except KeyError:
-                    text_df_select = pd.DataFrame()
-                if text_df_select.shape[0] > 0:
-                    text_df_select[self.id_col] = text_df_select.index.values
-                    text_df = text_df_select[~text_df_select[self.text_col].isnull()]
-                    serialized_records = text_df.apply(
-                        lambda x: self._serialize_tfr(x, split_sentences, split_characters),
-                        axis=1)
-                    with tf.io.TFRecordWriter(tfr_name) as writer:
-                        for serialized_item in tqdm(serialized_records.values):
-                            writer.write(serialized_item.SerializeToString())
-            dataset_raw = tf.data.TFRecordDataset(tfr_name)
-            dataset = dataset_raw.map(self._deserialize_tfr)
-            for e in dataset:
-                print(e)
+        if tfr_names is None:
+            tfr_names = [f"TFR.tfrecord"]
+
+        assert len(tfr_names) == len(dataset_ids)
+
+        if all(Path(tfr_name).exists() for tfr_name in tfr_names):
+            dataset_list = [tf.data.TFRecordDataset(tfr_name) for tfr_name in tfr_names]
+        else:
+            for id_list, tfr_name in zip(dataset_ids, tfr_names):
+                for text_df_chunk in self.text_df_gen:
+                    try:
+                        text_df_select = text_df_chunk.set_index(self.id_col).loc[id_list]
+                    except KeyError:
+                        text_df_select = pd.DataFrame()
+                    if text_df_select.shape[0] > 0:
+                        text_df_select[self.id_col] = text_df_select.index.values
+                        text_df = text_df_select[~text_df_select[self.text_col].isnull()]
+                        serialized_records = text_df.apply(
+                            lambda x: self._serialize_tokens_tfr(x, False, False),
+                            axis=1)
+                        with tf.io.TFRecordWriter(tfr_name) as writer:
+                            for serialized_item in tqdm(serialized_records.values):
+                                writer.write(serialized_item.SerializeToString())
+                dataset_raw = tf.data.TFRecordDataset(tfr_name)
+                dataset = dataset_raw.map(self._deserialize_tokens)
+                dataset_list.append(dataset)
 
         return dataset_list
 
@@ -180,6 +186,10 @@ class TextDataSetPrep:
 
     @staticmethod
     def _get_ids_per_dataset(selected_ids, dataset_split=None, seed=None):
+        """
+        randomly selects IDs from possible vales 'selected_ids' following a list of proportions.
+        e.g. for [0.5,0.25,0.25], returns three list of ids covering 50%, 25% and 25% of the selected_ids.
+        """
         split_props = dataset_split or [1.0]
         assert (sum(split_props) == 1)
 
@@ -197,7 +207,7 @@ class TextDataSetPrep:
 
         return ids_per_dataset
 
-    def _serialize_tfr(self, row, split_sent, split_char):
+    def _serialize_tokens_tfr(self, row, split_sent, split_char):
         text_data = self._text_split(row[self.text_col], split_sent, split_char)
         label = row[self.label_col]
         doc_id = row[self.id_col]
@@ -225,7 +235,7 @@ class TextDataSetPrep:
         return sequence_example
 
     @staticmethod
-    def _deserialize_tfr(observation):
+    def _deserialize_tokens(observation):
         context_features = {
             "doc_id": tf.io.FixedLenFeature([], dtype=tf.string),
             "label": tf.io.FixedLenFeature([], dtype=tf.string),
@@ -242,6 +252,7 @@ class TextDataSetPrep:
         )
 
         return {'doc_id': context['doc_id'], 'tokens': sequences['tokens']}, context['label']
+
 
     def _prepare_labels_lookup(self):
         """ Create a StaticHashTable to lookup label to put them into int"""

@@ -8,7 +8,7 @@ from data.dataset_prep import TextDataSetPrep
 
 class TestTextDataSetPrep(TestCase):
     def setUp(self) -> None:
-        self.temp_tfr_path = "test_tfr_tfrecord"
+        self.temp_tfr_path = "tests/tfr_test.tfrecord"
         self._cleanup()
 
     def tearDown(self) -> None:
@@ -59,7 +59,9 @@ class TestTextDataSetPrep(TestCase):
         self.assertListEqual([4, 1, 3, 5, 7], v1[0])
 
     def test_get_tf_dataset(self):
-        _ = TextDataSetPrep(chunksize=10000).get_tf_dataset()
+        self._cleanup()
+        _ = TextDataSetPrep(chunksize=100).get_tf_dataset(tfr_names=[self.temp_tfr_path])
+        _ = TextDataSetPrep(chunksize=100).get_tf_dataset(tfr_names=[self.temp_tfr_path])
 
     def test_serial_deserial(self):
         tds = TextDataSetPrep(csv_path=None, id_col='id', text_col='text', label_col='label')
@@ -68,13 +70,12 @@ class TestTextDataSetPrep(TestCase):
             'label': 'label',
             'text': "this is my text for testing. It has two sentences"
         }
-        serialized = tds._serialize_tfr(data, False, False)
-
+        serialized = tds._serialize_tokens_tfr(data, False, False)
         with tf.io.TFRecordWriter(self.temp_tfr_path) as writer:
             writer.write(serialized.SerializeToString())
         dataset = tf.data.TFRecordDataset(self.temp_tfr_path)
         for e in dataset:
-            _ = tds._deserialize_tfr(e)
+            _ = tds._deserialize_tokens(e)
 
     def test_ragged_memory(self):
         tds = TextDataSetPrep(nrows=100)

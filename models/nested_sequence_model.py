@@ -38,7 +38,7 @@ res = model(word_buckets)
 
 model.summary()
 
-model.fit(word_buckets, y, batch_size=512, epochs=500)
+model.fit(word_buckets, y, batch_size=512, epochs=100)
 
 print(f"Categorical accuracy after train: {evaluation(model(word_buckets), y).numpy()}")
 
