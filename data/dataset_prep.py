@@ -3,13 +3,15 @@ reads the IMDB data from a CSV and generates a TF dataset.
 Tokenization handled by SpaCy.
 
 """
-from tqdm import tqdm
+import os
+from pathlib import Path
+import pickle
 
 import pandas as pd
 import spacy
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
-from pathlib import Path
+from tqdm import tqdm
 
 from data.data_config import IMDB_CSV_SHUFFLE, LABELS, LABEL_COL, ID_COL, TEXT_COL, ENCODING
 
@@ -89,10 +91,10 @@ class TextDataSetPrep:
         self.label_table = self._prepare_labels_lookup()
 
     def get_tokens_dataset(self,
-                       n_per_label=None,
-                       dataset_split=None,
-                       seed=None,
-                       tfr_names=None):
+                           n_per_label=None,
+                           dataset_split=None,
+                           seed=None,
+                           tfr_names=None):
 
         selected_ids = self._selected_ids(n_per_label=n_per_label, seed=seed)
         dataset_ids = self._get_ids_per_dataset(selected_ids, dataset_split)
@@ -184,6 +186,38 @@ class TextDataSetPrep:
 
         return tokens
 
+    def csv_to_pickle(self, split_characters=True, split_sentences=False, target_dir="data"):
+        """
+        pickle files when text is splitted, so the spacy text splitting only needs to be done once.
+        A TF dataset can be created from pickle files
+        """
+        def b2c(flag):
+            return 'Y' if flag else 'N'
+        dataset_subdir = f"split_char_{b2c(split_characters)}_split_sent_{b2c(split_sentences)}"
+        dataset_dir = os.path.join(target_dir, dataset_subdir)
+
+        def mk_if_not_exist(d):
+            if not os.path.isdir(d):
+                os.mkdir(d)
+
+        mk_if_not_exist(dataset_dir)
+        for label in self.labels:
+            mk_if_not_exist(os.path.join(dataset_dir, label))
+
+        for df_chunk in self.text_df_gen:
+            tqdm.pandas()
+            df_chunk.progress_apply(lambda x: self._obs_to_pickle(
+                self._text_split(x[self.text_col], split_characters=split_characters, split_sentences=split_sentences),
+                x[self.label_col],
+                x[self.id_col],
+                dataset_dir
+            ), axis=1)
+
+    @staticmethod
+    def _obs_to_pickle(text_data, label, doc_id, dataset_dir):
+        with open(os.path.join(dataset_dir, label,  doc_id + '.pkl'), 'wb') as f:
+            pickle.dump(text_data, f)
+
     @staticmethod
     def _get_ids_per_dataset(selected_ids, dataset_split=None, seed=None):
         """
@@ -252,7 +286,6 @@ class TextDataSetPrep:
         )
 
         return {'doc_id': context['doc_id'], 'tokens': sequences['tokens']}, context['label']
-
 
     def _prepare_labels_lookup(self):
         """ Create a StaticHashTable to lookup label to put them into int"""
