@@ -1,6 +1,5 @@
 from unittest import TestCase
 import os
-from shutil import rmtree
 
 import tensorflow as tf
 
@@ -76,7 +75,7 @@ class TestTextDataSetPrep(TestCase):
             'label': 'label',
             'text': "this is my text for testing. It has two sentences"
         }
-        serialized = tds._serialize_tokens_tfr(data, False, False)
+        serialized = tds._serialize_tokens_tfr(data)
         with tf.io.TFRecordWriter(self.temp_tfr_path) as writer:
             writer.write(serialized.SerializeToString())
         dataset = tf.data.TFRecordDataset(self.temp_tfr_path)
@@ -103,3 +102,9 @@ class TestTextDataSetPrep(TestCase):
         test_path = os.path.join(dataset_dir, first_label, first_id + '.pkl')
         self.assertTrue(os.path.isfile(test_path))
 
+    def test_split_all(self):
+        tds = TextDataSetPrep(nrows=20)
+        text = "This is my first sentence. This is Sparta."
+        tokens, w_l, s_l = tds._split_all(text)
+        self.assertListEqual([6, 4], s_l)
+        self.assertEqual([4, 2, 2, 5, 8, 1, 4, 2, 6, 1], w_l)

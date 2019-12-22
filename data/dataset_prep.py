@@ -40,6 +40,17 @@ def bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
 
+def int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+
+def _get_seq_feature(tokens, encoder=bytes_feature):
+    tokens_features = []
+    for elem in tokens:
+        tokens_features.append(encoder(elem))
+    return tokens_features
+
+
 class TextDataSetPrep:
     def __init__(self,
                  csv_path=IMDB_CSV_SHUFFLE,
@@ -118,7 +129,7 @@ class TextDataSetPrep:
                         text_df_select[self.id_col] = text_df_select.index.values
                         text_df = text_df_select[~text_df_select[self.text_col].isnull()]
                         serialized_records = text_df.apply(
-                            lambda x: self._serialize_tokens_tfr(x, False, False),
+                            lambda x: self._serialize_tokens_tfr(x),
                             axis=1)
                         with tf.io.TFRecordWriter(tfr_name) as writer:
                             for serialized_item in tqdm(serialized_records.values):
@@ -186,6 +197,13 @@ class TextDataSetPrep:
 
         return tokens
 
+    def _split_all(self, text):
+        tokens = self._text_split(text, True, True)
+        word_len = [len(w) for s in tokens for w in s]
+        sent_len = [len(s) for s in tokens]
+        flat_chars = [c for s in tokens for w in s for c in w]
+        return flat_chars, word_len, sent_len
+
     def csv_to_pickle(self, split_characters=True, split_sentences=False, target_dir="data"):
         """
         pickle files when text is splitted, so the spacy text splitting only needs to be done once.
@@ -243,8 +261,8 @@ class TextDataSetPrep:
 
         return ids_per_dataset
 
-    def _serialize_tokens_tfr(self, row, split_sent, split_char):
-        text_data = self._text_split(row[self.text_col], split_sent, split_char)
+    def _serialize_tokens_tfr(self, row):
+        text_data, words_len, sents_len = self._split_all(row[self.text_col])
         label = row[self.label_col]
         doc_id = row[self.id_col]
 
@@ -253,13 +271,11 @@ class TextDataSetPrep:
             'label': bytes_feature(label)
         })
 
-        feature_list = {}
-        if text_data is not None:
-            tokens_features = []
-            for elem in text_data:
-                tokens_features.append(bytes_feature(elem))
-
-            feature_list['tokens'] = tf.train.FeatureList(feature=tokens_features)
+        feature_list = {
+            'characters': tf.train.FeatureList(feature=_get_seq_feature(text_data)),
+            'words_len':  tf.train.FeatureList(feature=_get_seq_feature(words_len, encoder=int64_feature)),
+            'sents_len': tf.train.FeatureList(feature=_get_seq_feature(sents_len, encoder=int64_feature)),
+        }
 
         sequence_features = tf.train.FeatureLists(feature_list=feature_list)
 
@@ -278,7 +294,9 @@ class TextDataSetPrep:
         }
 
         sequence_features = {
-            "tokens": tf.io.FixedLenSequenceFeature([], dtype=tf.string),
+            "characters": tf.io.FixedLenSequenceFeature([], dtype=tf.string),
+            "words_len": tf.io.FixedLenSequenceFeature([], dtype=tf.int64),
+            "sents_len": tf.io.FixedLenSequenceFeature([], dtype=tf.int64),
         }
 
         context, sequences = tf.io.parse_single_sequence_example(
@@ -287,7 +305,11 @@ class TextDataSetPrep:
             sequence_features=sequence_features
         )
 
-        return {'doc_id': context['doc_id'], 'tokens': sequences['tokens']}, context['label']
+        return {
+                   'doc_id': context['doc_id'],
+                   'characters': sequences['characters'],
+                   'words_len': sequences['words_len'],
+                   'sents_len': sequences['sents_len']}, context['label']
 
     def _prepare_labels_lookup(self):
         """ Create a StaticHashTable to lookup label to put them into int"""
@@ -307,33 +329,8 @@ class TextDataSetPrep:
     def _encode_labels(self, dataset):
         return dataset.map(lambda x, y: (x, tf.one_hot(self.label_table.lookup(y), len(self.labels))))
 
-    def _pickle_to_dataset(self, pkl_dir):
-
-        def process_path(file_path):
-            label = tf.strings.split(file_path, '/')[-2]
-            path = tf.strings.as_string(file_path)
-            with open(path, 'rb') as f:
-                text_data = pickle.load(f)
-            return text_data, label
-
-        full_dataset = None
-        for label in os.listdir(pkl_dir):
-            sub_dir = os.path.join(pkl_dir, label)
-            dataset_label = tf.data.Dataset.list_files(sub_dir + '/*')
-            if full_dataset is None:
-                full_dataset = dataset_label
-            else:
-                full_dataset = full_dataset.concatenate(dataset_label)
-
-        for item in full_dataset:
-            _ =process_path(item)
-        full_dataset = full_dataset.map(process_path)
-        for item in full_dataset:
-            print(item)
-
         # todo try instead to save two info: list of tokens AND split scheme (see ragged tensors doc). All in one
         #  TFRecord. Which means re-factoring everything so that the split gives the splitting positions instead.
         #  How to handle the char / word / sent  split ? Should everything be drilled down to char, then functions
         #  to merge where needed.
-        #  Step1: function to return list of all chars, list oflen of each word, list of len of each sentence.
         #  Step 2: Save those 3 info into a TFRecord.
