@@ -12,8 +12,8 @@ class TestTextDataSetPrep(TestCase):
         self.temp_tfr_path = "tests/tfr_test.tfrecord"
         self.temp_pkl_path = "tests/pkl_test"
         self._cleanup()
-        if not os.path.isdir(self.temp_pkl_path):
-            os.mkdir(self.temp_pkl_path)
+        # if not os.path.isdir(self.temp_pkl_path):
+        #     os.mkdir(self.temp_pkl_path)
 
     def tearDown(self) -> None:
         self._cleanup()
@@ -21,8 +21,8 @@ class TestTextDataSetPrep(TestCase):
     def _cleanup(self):
         if os.path.isfile(self.temp_tfr_path):
             os.remove(self.temp_tfr_path)
-        if os.path.isdir(self.temp_pkl_path):
-            rmtree(self.temp_pkl_path)
+        # if os.path.isdir(self.temp_pkl_path):
+        #     rmtree(self.temp_pkl_path)
 
     def test_get_imdb_data(self):
         _ = TextDataSetPrep(nrows=10)
@@ -95,7 +95,11 @@ class TestTextDataSetPrep(TestCase):
         self.assertListEqual(list(x.bounding_shape().numpy()), [100, 32, 183, 64])
 
     def test_doc_to_pickle(self):
+        self._cleanup()
         tds = TextDataSetPrep(nrows=20)
-        tds.csv_to_pickle(target_dir=self.temp_pkl_path)
-        test_path = os.path.join(self.temp_pkl_path, "split_char_Y_split_sent_N", "neg", "2471_2.txt.pkl")
+        dataset_dir = tds.csv_to_pickle(target_dir=self.temp_pkl_path)
+        first_id = tds.label_df.iloc[0, 0]
+        first_label = tds.label_df.iloc[0, 1]
+        test_path = os.path.join(dataset_dir, first_label, first_id + '.pkl')
         self.assertTrue(os.path.isfile(test_path))
+

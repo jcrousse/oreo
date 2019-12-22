@@ -213,6 +213,8 @@ class TextDataSetPrep:
                 dataset_dir
             ), axis=1)
 
+        return dataset_dir
+
     @staticmethod
     def _obs_to_pickle(text_data, label, doc_id, dataset_dir):
         with open(os.path.join(dataset_dir, label,  doc_id + '.pkl'), 'wb') as f:
@@ -304,3 +306,34 @@ class TextDataSetPrep:
 
     def _encode_labels(self, dataset):
         return dataset.map(lambda x, y: (x, tf.one_hot(self.label_table.lookup(y), len(self.labels))))
+
+    def _pickle_to_dataset(self, pkl_dir):
+
+        def process_path(file_path):
+            label = tf.strings.split(file_path, '/')[-2]
+            path = tf.strings.as_string(file_path)
+            with open(path, 'rb') as f:
+                text_data = pickle.load(f)
+            return text_data, label
+
+        full_dataset = None
+        for label in os.listdir(pkl_dir):
+            sub_dir = os.path.join(pkl_dir, label)
+            dataset_label = tf.data.Dataset.list_files(sub_dir + '/*')
+            if full_dataset is None:
+                full_dataset = dataset_label
+            else:
+                full_dataset = full_dataset.concatenate(dataset_label)
+
+        for item in full_dataset:
+            _ =process_path(item)
+        full_dataset = full_dataset.map(process_path)
+        for item in full_dataset:
+            print(item)
+
+        # todo try instead to save two info: list of tokens AND split scheme (see ragged tensors doc). All in one
+        #  TFRecord. Which means re-factoring everything so that the split gives the splitting positions instead.
+        #  How to handle the char / word / sent  split ? Should everything be drilled down to char, then functions
+        #  to merge where needed.
+        #  Step1: function to return list of all chars, list oflen of each word, list of len of each sentence.
+        #  Step 2: Save those 3 info into a TFRecord.
