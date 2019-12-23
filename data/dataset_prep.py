@@ -6,6 +6,9 @@ Tokenization handled by SpaCy.
 import os
 import pickle
 
+import concurrent.futures
+import urllib.request
+
 import pandas as pd
 import spacy
 from sklearn.model_selection import train_test_split
@@ -127,17 +130,36 @@ class TextDataSetPrep:
                 if text_df_select.shape[0] > 0:
                     text_df_select[self.id_col] = text_df_select.index.values
                     text_df = text_df_select[~text_df_select[self.text_col].isnull()]
-                    serialized_records = text_df.apply(
-                        lambda x: self._serialize_tokens_tfr(x),
-                        axis=1)
-                    with tf.io.TFRecordWriter(tfr_name) as writer:
-                        for serialized_item in tqdm(serialized_records.values):
-                            writer.write(serialized_item.SerializeToString())
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                        # Start the load operations and mark each future with its URL
+                        futures = [executor.submit(self._serialize_tokens_tfr, row)
+                                   for row in tqdm(text_df.iterrows(), total=text_df.shape[0])]
+                        for future in tqdm(concurrent.futures.as_completed(futures), total=text_df.shape[0]):
+                            try:
+                                data = future.result()
+                                with tf.io.TFRecordWriter(tfr_name) as writer:
+                                    writer.write(data.SerializeToString())
+                            except Exception as exc:
+                                print('%r generated an exception: %s' % (exc))
+
+                    # tqdm.pandas()
+                    # serialized_records = text_df.progress_apply(
+                    #     lambda x: self._serialize_tokens_tfr(x),
+                    #     axis=1)
+                    # with tf.io.TFRecordWriter(tfr_name) as writer:
+                    #     for serialized_item in tqdm(serialized_records.values):
+                    #         writer.write(serialized_item.SerializeToString())
         #         dataset_raw = tf.data.TFRecordDataset(tfr_name)
         #         dataset = dataset_raw.map(self._deserialize_tokens)
         #         dataset_list.append(dataset)
         #
         # return dataset_list
+
+    def read_tfr_dataset(self, tfr_file, nested_level=2):
+        dataset_raw = tf.data.TFRecordDataset(tfr_file)
+        dataset = dataset_raw.map(self._deserialize_tokens)
+        return dataset
 
     def get_ragged_tensors_dataset(self,
                                    split_sentences=False,
@@ -278,10 +300,10 @@ class TextDataSetPrep:
         return ids_per_dataset
 
     def _serialize_tokens_tfr(self, row):
-        tokens = self._text_split(row[self.text_col], True, True)
-        nested_len = [l for l in self._len_per_nested_list(tokens)]
-        label = row[self.label_col]
-        doc_id = row[self.id_col]
+        tokens = self._text_split(row[1][self.text_col], True, True)
+        nested_len = [e for e in self._len_per_nested_list(tokens)]
+        label = row[1][self.label_col]
+        doc_id = row[0]
 
         context_features = tf.train.Features(feature={
             'doc_id': bytes_feature(doc_id),

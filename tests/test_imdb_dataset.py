@@ -71,11 +71,11 @@ class TestTextDataSetPrep(TestCase):
 
     def test_serial_deserial(self):
         tds = TextDataSetPrep(csv_path=None, id_col='id', text_col='text', label_col='label')
-        data = {
-            'id': 'abc',
-            'label': 'label',
-            'text': "this is my text for testing. It has two sentences"
-        }
+        data = [
+            'abc',
+            {'label': 'label',
+            'text': "this is my text for testing. It has two sentences"}
+        ]
         serialized = tds._serialize_tokens_tfr(data)
         with tf.io.TFRecordWriter(self.temp_tfr_path) as writer:
             writer.write(serialized.SerializeToString())
@@ -84,15 +84,15 @@ class TestTextDataSetPrep(TestCase):
             _ = tds._deserialize_tokens(e)
 
     def test_ragged_memory(self):
-        tds = TextDataSetPrep(nrows=100)
+        tds = TextDataSetPrep(csv_path=IMDB_CSV_TEST, nrows=100)
         x, _ = tds.get_ragged_tensors_dataset()
-        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 870])
+        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 940])
 
         x, _ = tds.get_ragged_tensors_dataset(split_characters=True)
-        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 870, 64])
+        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 940, 24])
 
         x, _ = tds.get_ragged_tensors_dataset(split_characters=True, split_sentences=True)
-        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 32, 183, 64])
+        self.assertListEqual(list(x.bounding_shape().numpy()), [100, 46, 188, 24])
 
     def test_doc_to_pickle(self):
         self._cleanup()
