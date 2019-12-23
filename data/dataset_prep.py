@@ -101,7 +101,7 @@ class TextDataSetPrep:
 
         self.label_table = self._prepare_labels_lookup()
 
-    def get_tokens_dataset(self,
+    def write_tfr_datasets(self,
                            n_per_label=None,
                            dataset_split=None,
                            seed=None,
@@ -109,36 +109,36 @@ class TextDataSetPrep:
 
         selected_ids = self._selected_ids(n_per_label=n_per_label, seed=seed)
         dataset_ids = self._get_ids_per_dataset(selected_ids, dataset_split)
-        dataset_list = []
+        # dataset_list = []
 
         if tfr_names is None:
             tfr_names = [f"TFR.tfrecord"]
 
         assert len(tfr_names) == len(dataset_ids)
 
-        if all(Path(tfr_name).exists() for tfr_name in tfr_names):
-            dataset_list = [tf.data.TFRecordDataset(tfr_name) for tfr_name in tfr_names]
-        else:
-            for id_list, tfr_name in zip(dataset_ids, tfr_names):
-                for text_df_chunk in self.text_df_gen:
-                    try:
-                        text_df_select = text_df_chunk.set_index(self.id_col).loc[id_list]
-                    except KeyError:
-                        text_df_select = pd.DataFrame()
-                    if text_df_select.shape[0] > 0:
-                        text_df_select[self.id_col] = text_df_select.index.values
-                        text_df = text_df_select[~text_df_select[self.text_col].isnull()]
-                        serialized_records = text_df.apply(
-                            lambda x: self._serialize_tokens_tfr(x),
-                            axis=1)
-                        with tf.io.TFRecordWriter(tfr_name) as writer:
-                            for serialized_item in tqdm(serialized_records.values):
-                                writer.write(serialized_item.SerializeToString())
-                dataset_raw = tf.data.TFRecordDataset(tfr_name)
-                dataset = dataset_raw.map(self._deserialize_tokens)
-                dataset_list.append(dataset)
-
-        return dataset_list
+        # if all(Path(tfr_name).exists() for tfr_name in tfr_names):
+        #     dataset_list = [tf.data.TFRecordDataset(tfr_name) for tfr_name in tfr_names]
+        # else:
+        for id_list, tfr_name in zip(dataset_ids, tfr_names):
+            for text_df_chunk in self.text_df_gen:
+                try:
+                    text_df_select = text_df_chunk.set_index(self.id_col).loc[id_list]
+                except KeyError:
+                    text_df_select = pd.DataFrame()
+                if text_df_select.shape[0] > 0:
+                    text_df_select[self.id_col] = text_df_select.index.values
+                    text_df = text_df_select[~text_df_select[self.text_col].isnull()]
+                    serialized_records = text_df.apply(
+                        lambda x: self._serialize_tokens_tfr(x),
+                        axis=1)
+                    with tf.io.TFRecordWriter(tfr_name) as writer:
+                        for serialized_item in tqdm(serialized_records.values):
+                            writer.write(serialized_item.SerializeToString())
+        #         dataset_raw = tf.data.TFRecordDataset(tfr_name)
+        #         dataset = dataset_raw.map(self._deserialize_tokens)
+        #         dataset_list.append(dataset)
+        #
+        # return dataset_list
 
     def get_ragged_tensors_dataset(self,
                                    split_sentences=False,
@@ -168,7 +168,7 @@ class TextDataSetPrep:
 
     def _selected_ids(self, n_per_label=1000, seed=None):
         def min_row(val1, val2):
-            return val2 if val2 is None or 0 < val2 < val1 else val1
+            return val1 if val2 is None or 0 < val2 < val1 else val1
         return self.label_df.groupby(self.label_col, group_keys=False)\
                    .apply(lambda x: x.sample(min_row(len(x), n_per_label), random_state=seed))[self.id_col]
 
@@ -329,8 +329,5 @@ class TextDataSetPrep:
     def _encode_labels(self, dataset):
         return dataset.map(lambda x, y: (x, tf.one_hot(self.label_table.lookup(y), len(self.labels))))
 
-        # todo try instead to save two info: list of tokens AND split scheme (see ragged tensors doc). All in one
-        #  TFRecord. Which means re-factoring everything so that the split gives the splitting positions instead.
-        #  How to handle the char / word / sent  split ? Should everything be drilled down to char, then functions
-        #  to merge where needed.
-        #  Step 2: Save those 3 info into a TFRecord.
+        # todo convert dataset to RaggedTensors ?
+        #   General approach for arbitrary split, and arbitrary sequence model in between.

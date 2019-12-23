@@ -4,6 +4,7 @@ import os
 import tensorflow as tf
 
 from data.dataset_prep import TextDataSetPrep
+from data.data_config import IMDB_CSV_TEST
 
 
 class TestTextDataSetPrep(TestCase):
@@ -27,9 +28,9 @@ class TestTextDataSetPrep(TestCase):
         _ = TextDataSetPrep(nrows=10)
 
     def test_get_x_y(self):
-        tds = TextDataSetPrep(nrows=10, spacy_model=None)
-        df_ids = tds._selected_ids(seed=7357)
-        self.assertIn('5839_3.txt', df_ids.values)
+        tds = TextDataSetPrep(nrows=40, spacy_model=None, csv_path=IMDB_CSV_TEST)
+        df_ids = tds._selected_ids(seed=7357, n_per_label=2)
+        self.assertIn('5855_1.txt', df_ids.values)
 
     def test_text_split(self):
         doc = "this is the first sentence. This is the second one. \n\n This is  a new paragraph"
@@ -63,10 +64,10 @@ class TestTextDataSetPrep(TestCase):
         self.assertEqual(len(v2), 4)
         self.assertListEqual([4, 1, 3, 5, 7], v1[0])
 
-    def test_get_tf_dataset(self):
+    def test_write_tfr(self):
         self._cleanup()
-        _ = TextDataSetPrep(chunksize=100).get_tokens_dataset(tfr_names=[self.temp_tfr_path])
-        _ = TextDataSetPrep(chunksize=100).get_tokens_dataset(tfr_names=[self.temp_tfr_path])
+        _ = TextDataSetPrep(csv_path=IMDB_CSV_TEST).write_tfr_datasets(tfr_names=[self.temp_tfr_path])
+        _ = TextDataSetPrep(csv_path=IMDB_CSV_TEST).write_tfr_datasets(tfr_names=[self.temp_tfr_path])
 
     def test_serial_deserial(self):
         tds = TextDataSetPrep(csv_path=None, id_col='id', text_col='text', label_col='label')

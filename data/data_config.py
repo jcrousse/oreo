@@ -6,3 +6,4 @@ ID_COL = 'file'
 ENCODING = 'latin1'
 COLUMNS = [TEXT_COL, LABEL_COL, ID_COL]
 IMDB_CSV_SHUFFLE = "data/imdb_shuffle.csv"
+IMDB_CSV_TEST = "tests/imdb_test.csv"
