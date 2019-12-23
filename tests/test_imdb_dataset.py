@@ -104,8 +104,14 @@ class TestTextDataSetPrep(TestCase):
         self.assertTrue(os.path.isfile(test_path))
 
     def test_split_all(self):
-        tds = TextDataSetPrep(nrows=20)
+        tds = TextDataSetPrep(nrows=1)
         text = "This is my first sentence. This is Sparta."
         tokens, w_l, s_l = tds._split_all(text)
         self.assertListEqual([6, 4], s_l)
         self.assertEqual([4, 2, 2, 5, 8, 1, 4, 2, 6, 1], w_l)
+
+    def test_nested_len(self):
+        tds = TextDataSetPrep(nrows=1)
+        all_lens = [e for e in tds._len_per_nested_list([[[1, 2], [3]], [[4]]])]
+        self.assertListEqual([2, 1], all_lens[0])
+        self.assertEqual([2, 1, 1], all_lens[1])

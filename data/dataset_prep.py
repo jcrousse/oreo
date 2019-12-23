@@ -4,7 +4,6 @@ Tokenization handled by SpaCy.
 
 """
 import os
-from pathlib import Path
 import pickle
 
 import pandas as pd
@@ -204,6 +203,23 @@ class TextDataSetPrep:
         flat_chars = [c for s in tokens for w in s for c in w]
         return flat_chars, word_len, sent_len
 
+    def _flatten_to_lowest(self, nested_list):
+        for elem in nested_list:
+            if isinstance(elem, list):
+                yield from self._flatten_to_lowest(elem)
+            else:
+                yield elem
+
+    @staticmethod
+    def _len_per_nested_list(token_list):
+        """
+        generator that returns length of each element in a nested list, recursively
+        e.g. [[[1,2],[3]],[[4]]] would return [2,1] then [2,1,1]
+        """
+        while all(isinstance(e, list) for e in token_list):
+            yield [len(e) for e in token_list]
+            token_list = [elem for sublist in token_list for elem in sublist]
+
     def csv_to_pickle(self, split_characters=True, split_sentences=False, target_dir="data"):
         """
         pickle files when text is splitted, so the spacy text splitting only needs to be done once.
@@ -262,7 +278,8 @@ class TextDataSetPrep:
         return ids_per_dataset
 
     def _serialize_tokens_tfr(self, row):
-        text_data, words_len, sents_len = self._split_all(row[self.text_col])
+        tokens = self._text_split(row[self.text_col], True, True)
+        nested_len = [l for l in self._len_per_nested_list(tokens)]
         label = row[self.label_col]
         doc_id = row[self.id_col]
 
@@ -272,10 +289,11 @@ class TextDataSetPrep:
         })
 
         feature_list = {
-            'characters': tf.train.FeatureList(feature=_get_seq_feature(text_data)),
-            'words_len':  tf.train.FeatureList(feature=_get_seq_feature(words_len, encoder=int64_feature)),
-            'sents_len': tf.train.FeatureList(feature=_get_seq_feature(sents_len, encoder=int64_feature)),
+            'characters': tf.train.FeatureList(feature=_get_seq_feature(self._flatten_to_lowest(tokens)))
         }
+        for nest_depth, len_list in enumerate(nested_len):
+            feature_list['len_level_' + str(nest_depth)] = \
+                tf.train.FeatureList(feature=_get_seq_feature(len_list, encoder=int64_feature))
 
         sequence_features = tf.train.FeatureLists(feature_list=feature_list)
 
@@ -287,7 +305,7 @@ class TextDataSetPrep:
         return sequence_example
 
     @staticmethod
-    def _deserialize_tokens(observation):
+    def _deserialize_tokens(observation, nested_depth=2):
         context_features = {
             "doc_id": tf.io.FixedLenFeature([], dtype=tf.string),
             "label": tf.io.FixedLenFeature([], dtype=tf.string),
@@ -295,21 +313,26 @@ class TextDataSetPrep:
 
         sequence_features = {
             "characters": tf.io.FixedLenSequenceFeature([], dtype=tf.string),
-            "words_len": tf.io.FixedLenSequenceFeature([], dtype=tf.int64),
-            "sents_len": tf.io.FixedLenSequenceFeature([], dtype=tf.int64),
         }
+
+        for i in range(nested_depth):
+            sequence_features['len_level_' + str(i)] = tf.io.FixedLenSequenceFeature([], dtype=tf.int64)
 
         context, sequences = tf.io.parse_single_sequence_example(
             serialized=observation,
             context_features=context_features,
             sequence_features=sequence_features
         )
-
-        return {
+        res_dict = {
                    'doc_id': context['doc_id'],
                    'characters': sequences['characters'],
-                   'words_len': sequences['words_len'],
-                   'sents_len': sequences['sents_len']}, context['label']
+                   'len_level_0': sequences['len_level_0'],
+                   'len_level_1': sequences['len_level_1']}
+
+        for i in range(nested_depth):
+            res_dict['len_level_' + str(i)] = sequences['len_level_' + str(i)]
+
+        return res_dict, context['label']
 
     def _prepare_labels_lookup(self):
         """ Create a StaticHashTable to lookup label to put them into int"""
