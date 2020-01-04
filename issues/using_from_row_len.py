@@ -38,6 +38,7 @@ dataset = tf.data.Dataset.from_tensor_slices([0, 1])
 dataset = dataset.map(lambda x: tf.py_function(
     func=id_to_obs, inp=[x], Tout=(tf.int32, tf.int32)))
 dataset = dataset.map(name_cols)
+dataset = dataset.padded_batch(1, {"flat_tokens": [4, ], "row_lengths": [2, ]})
 dataset = tf.data.Dataset.zip((dataset, tf.data.Dataset.from_tensor_slices(labels)))
 
 for item in dataset:
@@ -46,13 +47,14 @@ for item in dataset:
 token_in = tf.keras.layers.Input(shape=(4,), name='flat_tokens', dtype=tf.int32)
 row_len_in = tf.keras.layers.Input(shape=(2,), name='row_lengths', dtype=tf.int32)
 embedded = tf.keras.layers.Embedding(6, 4)(token_in)
-prediction = tf.keras.layers.LSTM(1)(embedded)
+prediction = tf.keras.layers.LSTM(2)(embedded)
 
 model = tf.keras.Model(inputs=[token_in, row_len_in], outputs=prediction)
 model.compile(optimizer='adam',
               loss=tf.keras.losses.SparseCategoricalCrossentropy(),
               metrics=['accuracy'])
 
-model.fit(dataset)
+model.fit(dataset,  steps_per_epoch=1)
 
+# Works with padded_batch_dataset AND steps per epoch
 # subject to issue https://github.com/tensorflow/tensorflow/issues/24520
