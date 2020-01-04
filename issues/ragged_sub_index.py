@@ -31,14 +31,20 @@ input_grouping = tf.keras.layers.Input(shape=(None,), name='len_level_0', dtype=
 
 word_buckets = tf.strings.to_hash_bucket_fast(input_tokens, VOCAB_N_L0)
 embedded = tf.keras.layers.Embedding(VOCAB_N_L0, EMBEDDING_SIZE_L0)(word_buckets)
+reshaped_val = tf.reshape(input_grouping, [-1])
+abs_val_len = tf.math.abs(reshaped_val)
 
-reshaped = tf.RaggedTensor.from_row_lengths(
+# reshaped = tf.RaggedTensor.from_row_lengths(
+#     values=embedded,
+#     row_lengths=[2,2,2,2])
+
+reshaped_real = tf.RaggedTensor.from_row_lengths(
     values=embedded,
-    row_lengths=tf.reshape(input_grouping, [-1]))
+    row_lengths=abs_val_len)
 # yet another situation where the combination of Keras and RaggedTensor sucks.
 # todo next: reshape without ragged (use padding), and try to compile,
 #  then try to print out the tf.reshape(input_grouping, [-1] to check if it is the value we want.
-#  if hardcoding the same value as the reshaped tensor works, then we can raise an issue. 
+#  if hardcoding the same value as the reshaped tensor works, then we can raise an issue.
 encoded = tf.keras.layers.LSTM(ENCODING_SIZE_L1)(reshaped)
 
 model = tf.keras.Model(inputs=[input_tokens, input_grouping], outputs=encoded)
@@ -51,7 +57,7 @@ embedded = tf.keras.layers.Embedding(VOCAB_N_L0, EMBEDDING_SIZE_L0)(word_buckets
 
 regrouped = tf.RaggedTensor.from_row_lengths(
     values=embedded,
-    row_lengths=len_l0  # words per sentence
+    row_lengths=tf.math.abs(len_l0)  # words per sentence
 )
 
 sentence_encoding = tf.keras.layers.LSTM(ENCODING_SIZE_L1)(embedded)

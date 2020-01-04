@@ -1,0 +1,63 @@
+import tensorflow as tf
+import numpy as np
+
+# see https://github.com/tensorflow/tensorflow/issues/24520
+# see https://stackoverflow.com/questions/52582275/tf-data-with-multiple-inputs-outputs-in-keras
+
+sent1 = np.array([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int32)
+sent2 = np.array([8, 7, 6, 5, 4, 3, 2, 1], dtype=np.int32)
+sent1 = np.reshape(sent1, (2, 4))
+sent2 = np.reshape(sent2, (2, 4))
+
+labels = np.array([1.0, 0.0,], dtype=np.float32)
+labels = np.reshape(labels, (2, 1))
+
+def generator():
+    for s1, s2, l in zip(sent1, sent2, labels):
+      yield {"input_1": tf.reshape(s1, [-1]), "input_2": tf.reshape(s2, [-1])}, l
+
+dataset = tf.data.Dataset.from_generator(generator,
+                                         output_types=({"input_1": tf.int32, "input_2": tf.int32}, tf.float32),
+                                         output_shapes=({"input_1": [4,], "input_2": [4,]}, [1,])
+                                         )
+dataset = dataset.batch(1)
+
+for item in dataset:
+    print(item)
+
+token_in = tf.keras.layers.Input(shape=(4,), name='input_1', dtype=tf.int32)
+row_len_in = tf.keras.layers.Input(shape=(4,), name='input_2', dtype=tf.int32)
+
+embedded_1 = tf.keras.layers.Embedding(6, 4)(token_in)
+# embedded_2 = tf.keras.layers.Embedding(6, 4)(row_len_in)
+# concat = tf.keras.layers.concatenate([embedded_1, embedded_2])
+prediction = tf.keras.layers.LSTM(2)(embedded_1)
+
+model = tf.keras.Model(inputs=[token_in, row_len_in], outputs=prediction)
+model.compile(optimizer='adam',
+              loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+              metrics=['accuracy'])
+
+model.fit(dataset, steps_per_epoch=1)
+
+
+# flat_vals = np.array([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int64)
+# seq_len = np.array([2, 2, 2, 2], dtype=np.int64)
+# flat_vals = np.reshape(flat_vals, (2, 4, 1))
+# seq_len = np.reshape(seq_len, (2, 2, 1))
+#
+# labels = np.array([1, 0], dtype=np.int64)
+# labels = np.reshape(labels, (2, 1))
+#
+# def generator():
+#     for s1, s2, l in zip(flat_vals, seq_len, labels):
+#       yield {"input_1": s1, "input_2": s2}, l
+#
+# dataset = tf.data.Dataset.from_generator(generator, output_types=({"flat_values": tf.int64, "seq_len": tf.int64}, tf.int64))
+# dataset = dataset.batch(1)
+#
+# for item in dataset:
+#     print(item)
+
+
+
