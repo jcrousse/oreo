@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
-# see https://github.com/tensorflow/tensorflow/issues/24520
+# see https://github.com/tensorflow/tensorflow/issues/24520 which is annoying when using Datasets & Keras fit
 # see https://stackoverflow.com/questions/52582275/tf-data-with-multiple-inputs-outputs-in-keras
 
 # at the moment it seems that the dataset tensors must be of fixed shape (and therefore padded) ?
@@ -18,10 +18,6 @@ labels = np.reshape(labels, (2, 1))
 
 def generator():
     for s1, s2, l in zip(sent1, sent2, labels):
-        # ragged_in = tf.RaggedTensor.from_row_lengths(
-        #     values=s1,
-        #     row_lengths=[2, 2],
-        # )
         yield {"input_1": s1, "input_2": s2}, l
 
 
@@ -35,9 +31,11 @@ for item in dataset:
     print(item)
 
 token_in = tf.keras.layers.Input(shape=(None,), name='input_1', dtype=tf.int32, ragged=False)
-row_len_in = tf.keras.layers.Input(shape=(4,), name='input_2', dtype=tf.int32)
+row_len_in = tf.keras.layers.Input(shape=(None,), name='input_2', dtype=tf.int32)
 
-embedded_1 = tf.keras.layers.Embedding(9, 4)(token_in)
+ragged_in = tf.RaggedTensor.from_row_lengths(token_in, [2, 2], validate=False)
+
+embedded_1 = tf.keras.layers.Embedding(9, 4)(ragged_in)
 prediction = tf.keras.layers.LSTM(2)(embedded_1)
 
 model = tf.keras.Model(inputs=[token_in, row_len_in], outputs=prediction)
