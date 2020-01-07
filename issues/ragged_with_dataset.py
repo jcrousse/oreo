@@ -12,26 +12,32 @@ sent2 = np.array([8, 7, 6, 5, 4, 3, 2, 1], dtype=np.int32)
 sent1 = np.reshape(sent1, (2, 4))
 sent2 = np.reshape(sent2, (2, 4))
 
-labels = np.array([1.0, 0.0,], dtype=np.float32)
+labels = np.array([1.0, 0.0, ], dtype=np.float32)
 labels = np.reshape(labels, (2, 1))
+
 
 def generator():
     for s1, s2, l in zip(sent1, sent2, labels):
-      yield {"input_1": tf.reshape(s1, [-1]), "input_2": tf.reshape(s2, [-1])}, l
+        # ragged_in = tf.RaggedTensor.from_row_lengths(
+        #     values=s1,
+        #     row_lengths=[2, 2],
+        # )
+        yield {"input_1": s1, "input_2": s2}, l
+
 
 dataset = tf.data.Dataset.from_generator(generator,
                                          output_types=({"input_1": tf.int32, "input_2": tf.int32}, tf.float32),
-                                         output_shapes=({"input_1": [4,], "input_2": [4,]}, [1,])
+                                         output_shapes=({"input_1": [4, ], "input_2": [4, ]}, [1, ])
                                          )
 dataset = dataset.batch(1)
 
 for item in dataset:
     print(item)
 
-token_in = tf.keras.layers.Input(shape=(4,), name='input_1', dtype=tf.int32)
+token_in = tf.keras.layers.Input(shape=(None,), name='input_1', dtype=tf.int32, ragged=False)
 row_len_in = tf.keras.layers.Input(shape=(4,), name='input_2', dtype=tf.int32)
 
-embedded_1 = tf.keras.layers.Embedding(6, 4)(token_in)
+embedded_1 = tf.keras.layers.Embedding(9, 4)(token_in)
 prediction = tf.keras.layers.LSTM(2)(embedded_1)
 
 model = tf.keras.Model(inputs=[token_in, row_len_in], outputs=prediction)
