@@ -44,9 +44,3 @@ model.compile(optimizer='adam',
               metrics=['accuracy'])
 
 model.fit(dataset, steps_per_epoch=1)
-
-# todo: check https://github.com/tensorflow/text/issues/174 to use Dataset with Ragged Tensors
-#   try different (custom) tokenizers, split by '.', by character, etc..
-# todo: check custom training as alternative approach if dataset/keras doesn't work
-#  https://www.tensorflow.org/tutorials/customization/custom_training
-
