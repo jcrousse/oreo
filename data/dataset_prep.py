@@ -7,7 +7,6 @@ import os
 import pickle
 
 import concurrent.futures
-import urllib.request
 
 import pandas as pd
 import spacy

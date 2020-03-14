@@ -44,8 +44,8 @@ dataset = tf.data.Dataset.zip((dataset, tf.data.Dataset.from_tensor_slices(label
 for item in dataset:
     print(item)
 
-token_in = tf.keras.layers.Input(shape=(4,), name='flat_tokens', dtype=tf.int32)
-row_len_in = tf.keras.layers.Input(shape=(2,), name='row_lengths', dtype=tf.int32)
+token_in = tf.keras.layers.Input(shape=(None,), name='flat_tokens', dtype=tf.int32)
+row_len_in = tf.keras.layers.Input(shape=(None,), name='row_lengths', dtype=tf.int32)
 embedded = tf.keras.layers.Embedding(6, 4)(token_in)
 prediction = tf.keras.layers.LSTM(2)(embedded)
 

@@ -26,7 +26,7 @@ embedded_w = tf.keras.layers.LSTM(WORD_VECTORS_LEN)(reshaped)
 group_by_review = tf.reshape(embedded_w, (-1, MAX_REVIEW_LEN, WORD_VECTORS_LEN))
 lstm_review = tf.keras.layers.LSTM(REVIEW_EMBEDDING)(group_by_review)
 dense1 = tf.keras.layers.Dense(64, activation='relu', name='dense1')(lstm_review)
-classifier = tf.keras.layers.Dense(2, activation='softmax', name='classifier')(dense1)
+classifier = tf.keras.layers.Dense(3, activation='softmax', name='classifier')(dense1)
 model = tf.keras.Model(inputs=inputs, outputs=classifier)
 
 model.compile(
