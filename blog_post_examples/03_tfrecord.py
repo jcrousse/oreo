@@ -37,28 +37,38 @@ def get_seq_feature(tokens, encoder=bytes_feature):
     return tokens_features
 
 
-for idx, item_data in enumerate(zip(flat_characters, words_lengths, sentence_lengths, labels)):
-    obs_chars, words_ln, sent_ln, obs_label = item_data
-    context_features = tf.train.Features(feature={
-        'label': _float_feature(obs_label),
-        'sent_len': int64_feature(sent_ln)
-    })
+writer = tf.data.experimental.TFRecordWriter("exemple.tfr")
 
-    feature_list = {
-        'characters': tf.train.FeatureList(feature=get_seq_feature(obs_chars)),
-        'words_len': tf.train.FeatureList(feature=get_seq_feature(words_ln, int64_feature)),
 
-    }
+def serialize_data():
+    for idx, item_data in enumerate(zip(flat_characters, words_lengths, sentence_lengths, labels)):
+        obs_chars, words_ln, sent_ln, obs_label = item_data
+        context_features = tf.train.Features(feature={
+            'label': _float_feature(obs_label),
+            'sent_len': int64_feature(sent_ln)
+        })
 
-    sequence_features = tf.train.FeatureLists(feature_list=feature_list)
+        feature_list = {
+            'characters': tf.train.FeatureList(feature=get_seq_feature(obs_chars)),
+            'words_len': tf.train.FeatureList(feature=get_seq_feature(words_ln, int64_feature)),
 
-    sequence_example = tf.train.SequenceExample(
-        context=context_features,
-        feature_lists=sequence_features,
-    )
+        }
 
-    with tf.io.TFRecordWriter(f"example_{idx}.tfr") as writer:
-        writer.write(sequence_example.SerializeToString())
+        sequence_features = tf.train.FeatureLists(feature_list=feature_list)
+
+        sequence_example = tf.train.SequenceExample(
+            context=context_features,
+            feature_lists=sequence_features,
+        )
+
+        # with tf.io.TFRecordWriter(f"example_{idx}.tfr") as writer:
+        #     writer.write(sequence_example.SerializeToString())
+        #writer.write(sequence_example.SerializeToString())
+        yield sequence_example.SerializeToString()
+
+
+dataset_to_write = tf.data.Dataset.from_generator(serialize_data, output_types=tf.string)
+writer.write(dataset_to_write)
 
 
 def deserialize_tokens(observation):
@@ -88,11 +98,21 @@ def deserialize_tokens(observation):
 
     return res_dict, context['label']
 
-# todo: feed ragged to LSTM, then second level LSTM to output?
 
 
-dataset_raw = tf.data.TFRecordDataset(["example_0.tfr", "example_1.tfr"])
+
+dataset_raw = tf.data.TFRecordDataset(["exemple.tfr"])
 dataset = dataset_raw.map(deserialize_tokens)
+
+_ = 1
+
+
+# todo why can't I have a batch of size 2 ?
+#  Maybe solution here: https://stackoverflow.com/questions/49531286/tensorflow-tf-data-dataset-cannot-batch-tensors-with-different-shapes-in-compo
+#  maybe single TFRecord file ?
+
+# dataset = dataset.unbatch()
+# dataset = dataset.batch(2)
 
 input_chars = tf.keras.layers.Input(shape=(None,), name='characters', dtype=tf.string)
 input_lens = tf.keras.layers.Input(shape=(None,), name='words_len', dtype=tf.int32)
