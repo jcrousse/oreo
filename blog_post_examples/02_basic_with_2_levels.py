@@ -6,27 +6,26 @@ text = [
     "this one is definitely negative and has more words".split(' ')
 ]
 
-words_lengths = [len(w) for sent in text for w in sent]
+words_lengths = [[len(w) for w in sent] for sent in text]
 sentence_lengths = [len(s) for s in text]
 
-words_lengths_t = tf.constant(words_lengths)
+words_lengths_t = tf.ragged.constant(words_lengths)
 sentence_lengths_t = tf.constant(sentence_lengths)
-flat_characters = [c for sent in text for w in sent for c in w]
+flat_characters = [[c for w in sent for c in w] for sent in text]
 
-text_t = tf.constant(flat_characters)
+text_t = tf.ragged.constant(flat_characters)
 int_chars = tf.dtypes.cast(tf.strings.to_hash_bucket_fast(text_t, vocab_size), tf.float32)
 
-char_tokens = tf.keras.layers.Input(shape=(None,), name="int_chars")
-w_lens = tf.keras.layers.Input(shape=(None,), name="w_len", dtype=tf.int32)
-s_len = tf.keras.layers.Input(shape=(None, ), name="s_len", dtype=tf.int32)
-
+char_tokens = tf.keras.layers.Input(shape=(None,), ragged=True, name="int_chars")
+w_lens = tf.keras.layers.Input(shape=(None,), ragged=True, name="w_len", dtype=tf.int32)
+s_len = tf.keras.layers.Input(shape=(None, ), ragged=True, name="s_len", dtype=tf.int32)
 
 embedd_size = 8
 embedded = tf.keras.layers.Embedding(vocab_size, embedd_size)(char_tokens)
 # lstm_out = tf.keras.layers.LSTM(16)(embedded)
 
-w_lens_flat = tf.reshape(w_lens, [-1])
-embedd_flat = tf.reshape(embedded, [-1, embedd_size])
+w_lens_flat = w_lens.flat_values
+embedd_flat = embedded.flat_values
 
 seq_lvl1_in = tf.keras.layers.Lambda(
     lambda x: tf.RaggedTensor.from_row_lengths(x, w_lens_flat)
@@ -46,7 +45,9 @@ model = tf.keras.Model(inputs=[s_len, char_tokens, w_lens], outputs=classifier)
 model.compile(
     tf.keras.optimizers.Adam(),
     loss=tf.keras.losses.CategoricalCrossentropy(),
-    metrics=['acc'])
+    metrics=['acc'],
+    # experimental_run_tf_function=False
+)
 
 # experimental_run_tf_function=False
 
